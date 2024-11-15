@@ -1,14 +1,13 @@
 import pygame
 import sys
 import random
-import noise
 
 pygame.init()
 
 # Colors
 BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
-RED = (255, 0, 0)
+RED = (255, 0, 0)  # Changed the player color to red for better visibility
 GRASS = (0, 255, 0)
 GRASS2 = (0, 230, 0)
 GRASS3 = (0, 200, 0)
@@ -42,7 +41,7 @@ class Player(pygame.sprite.Sprite):
     def __init__(self):
         super().__init__()
         self.image = pygame.Surface([PLAYER_SIZE, PLAYER_SIZE])
-        self.image.fill(WHITE)
+        self.image.fill(RED)  # Changed to red for better visibility
         self.rect = self.image.get_rect()
         self.rect.center = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2)
         self.speed = 5
@@ -62,86 +61,86 @@ class Player(pygame.sprite.Sprite):
         if keys[pygame.K_DOWN]:
             new_y += self.speed
 
-        # Check both current and next position tiles for water
-        current_tile_x = self.rect.centerx // TILE_SIZE
-        current_tile_y = self.rect.centery // TILE_SIZE
+        # Check next position for water
         next_tile_x = (new_x + PLAYER_SIZE // 2) // TILE_SIZE
         next_tile_y = (new_y + PLAYER_SIZE // 2) // TILE_SIZE
 
-        # Only move if the next position is within bounds and not water
+        # Move player only if next tile is valid and not water
         if (0 <= next_tile_x < MAP_WIDTH and 
             0 <= next_tile_y < MAP_HEIGHT and 
             map_data[next_tile_y][next_tile_x] != WATER):
             self.rect.x = new_x
             self.rect.y = new_y
 
-        # Update camera position
-        camera_rect.x = self.rect.centerx - SCREEN_WIDTH // 2
-        camera_rect.y = self.rect.centery - SCREEN_HEIGHT // 2
+        # Update camera to center around the player, but keep the player within bounds
+        camera_rect.centerx = self.rect.centerx
+        camera_rect.centery = self.rect.centery
 
-        # Keep camera within map bounds
-        camera_rect.clamp_ip(pygame.Rect(0, 0, 
-                                       MAP_WIDTH * TILE_SIZE, 
-                                       MAP_HEIGHT * TILE_SIZE))
+        # Prevent camera from going out of bounds (the edges of the map)
+        camera_rect.left = max(0, camera_rect.left)
+        camera_rect.top = max(0, camera_rect.top)
+        camera_rect.right = min(MAP_WIDTH * TILE_SIZE, camera_rect.right)
+        camera_rect.bottom = min(MAP_HEIGHT * TILE_SIZE, camera_rect.bottom)
+
+def smooth_map(map_data, iterations=2):
+    for _ in range(iterations):
+        new_map = [[tile for tile in row] for row in map_data]
+        for y in range(MAP_HEIGHT):
+            for x in range(MAP_WIDTH):
+                if x > 0 and x < MAP_WIDTH-1 and y > 0 and y < MAP_HEIGHT-1:
+                    water_count = sum(1 for dy in [-1, 0, 1] for dx in [-1, 0, 1]
+                                    if map_data[y + dy][x + dx] == WATER)
+                    if water_count >= 5:
+                        new_map[y][x] = WATER
+                    elif water_count <= 3:
+                        new_map[y][x] = GRASS
+        map_data = new_map
+    return map_data
 
 def generate_map():
-    map_data = []
-    scale = 50.0  # Adjust this to change the scale of the terrain
-    octaves = 6    # Number of passes for the noise
-    persistence = 0.5
-    lacunarity = 2.0
+    map_data = [[GRASS for _ in range(MAP_WIDTH)] for _ in range(MAP_HEIGHT)]
     
-    # Generate base noise map
-    for row in range(MAP_HEIGHT):
-        current_row = []
-        for col in range(MAP_WIDTH):
-            nx = col/MAP_WIDTH - 0.5
-            ny = row/MAP_HEIGHT - 0.5
-            
-            # Generate Perlin noise value
-            value = noise.pnoise2(nx*scale, 
-                                ny*scale, 
-                                octaves=octaves, 
-                                persistence=persistence, 
-                                lacunarity=lacunarity, 
-                                repeatx=MAP_WIDTH, 
-                                repeaty=MAP_HEIGHT, 
-                                base=42)
-            
-            # Normalize the value to 0-1 range
-            value = (value + 1) / 2
-            
-            # Assign terrain based on noise value
-            if value < 0.2:
-                tile = WATER
-            elif value < 0.3:
-                tile = DIRT
-            elif value < 0.4:
-                tile = DIRT2
-            elif value < 0.7:
-                tile = GRASS4
-            elif value < 0.8:
-                tile = GRASS3
-            elif value < 0.9:
-                tile = GRASS2
-            else:
-                tile = GRASS
-                
-            current_row.append(tile)
-        map_data.append(current_row)
+    # Reduce the number of water bodies
+    for _ in range(MAP_WIDTH * MAP_HEIGHT // 65):
+        center_x = random.randint(0, MAP_WIDTH-1)
+        center_y = random.randint(0, MAP_HEIGHT-1)
+        size = random.randint(2, 4)
+        
+        for y in range(max(0, center_y-size), min(MAP_HEIGHT, center_y+size)):
+            for x in range(max(0, center_x-size), min(MAP_WIDTH, center_x+size)):
+                if random.random() < 0.7:
+                    map_data[y][x] = WATER
+    
+    map_data = smooth_map(map_data)
+    
+    for y in range(MAP_HEIGHT):
+        for x in range(MAP_WIDTH):
+            if map_data[y][x] != WATER:
+                rand = random.random()
+                if rand < 0.1:
+                    map_data[y][x] = DIRT
+                elif rand < 0.2:
+                    map_data[y][x] = DIRT2
+                elif rand < 0.5:
+                    map_data[y][x] = GRASS2
+                elif rand < 0.7:
+                    map_data[y][x] = GRASS3
+                elif rand < 0.9:
+                    map_data[y][x] = GRASS4
     
     return map_data
 
-def render_map(map_data, camera_rect):
+def render_map(map_data, camera_rect, player_rect):
     tiles = pygame.sprite.Group()
+
+    # Calculate visible range with a buffer around the player
+    player_x, player_y = player_rect.centerx, player_rect.centery
+    start_col = max(0, (player_x // TILE_SIZE) - 10)
+    end_col = min(MAP_WIDTH, (player_x // TILE_SIZE) + 10)
+    start_row = max(0, (player_y // TILE_SIZE) - 7)
+    end_row = min(MAP_HEIGHT, (player_y // TILE_SIZE) + 7)
     
-    # Calculate visible range
-    start_col = max(0, camera_rect.left // TILE_SIZE)
-    end_col = min(MAP_WIDTH, (camera_rect.right // TILE_SIZE) + 1)
-    start_row = max(0, camera_rect.top // TILE_SIZE)
-    end_row = min(MAP_HEIGHT, (camera_rect.bottom // TILE_SIZE) + 1)
-    
-    # Only render visible tiles
+    # Only render tiles around the player
     for row in range(start_row, end_row):
         for col in range(start_col, end_col):
             x = col * TILE_SIZE - camera_rect.x
@@ -158,7 +157,7 @@ all_sprites.add(player)
 
 map_data = generate_map()
 
-# Find a valid starting position for the player (not on water)
+# Make sure player doesn't spawn on water
 valid_start = False
 while not valid_start:
     start_x = random.randint(0, MAP_WIDTH - 1)
@@ -178,13 +177,17 @@ while True:
             pygame.quit()
             sys.exit()
 
+    # Update player and camera
     player.update(map_data, camera_rect)
 
+    # Clear the screen
     screen.fill(BLACK)
 
-    tiles = render_map(map_data, camera_rect)
+    # Render map with camera offset
+    tiles = render_map(map_data, camera_rect, player.rect)
     tiles.draw(screen)
 
+    # Draw the player (ensure player is drawn last so it appears on top)
     all_sprites.draw(screen)
 
     pygame.display.flip()
