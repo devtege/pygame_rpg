@@ -29,6 +29,7 @@ MAP_HEIGHT = 48
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 pygame.display.set_caption("Pocket RPG")
 
+
 class Tile(pygame.sprite.Sprite):
     def __init__(self, color, x, y):
         super().__init__()
